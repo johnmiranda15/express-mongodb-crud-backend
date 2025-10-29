@@ -1,24 +1,34 @@
 import express from "express";
 import morgan from "morgan";
-import indexRoutes from "./routes/tasks.routes.js";
 import cors from "cors";
+import tasksRoutes from "./routes/tasks.routes.js"; // nombre más claro
+import { FRONTEND_URL } from "./config.js";
 
 const app = express();
 
-// middlewares
+// Middlewares
 app.use(morgan("dev"));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-app.use(cors({
-  origin: "http://localhost:5173", // aquí tu frontend de React
-  credentials: true,
-}));
+// CORS
+app.use(
+  cors({
+    origin: FRONTEND_URL, // tu frontend en Vite
+    credentials: true,
+  })
+);
 
-// routes
-app.use(indexRoutes);
+// Ruta raiz de prueba
+app.get("/", (req, res) => {
+  res.json({ message: "Backend ejecutandose correctamente" });
+});
 
-app.use((req, res, next) => {
+// Rutas principales
+app.use("/api", tasksRoutes);
+
+// Manejo de rutas inexistentes
+app.use((req, res) => {
   res.status(404).json({ message: "Endpoint not found" });
 });
 
