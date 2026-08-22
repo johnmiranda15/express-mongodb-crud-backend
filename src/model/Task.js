@@ -2,7 +2,7 @@ import { Schema, model } from "mongoose";
 
 const TaskSchema = Schema(
   {
-    title: { type: String, required: true, trim: true, unique: true },
+    title: { type: String, required: true, trim: true },
     description: {
       type: String,
       trim: true,

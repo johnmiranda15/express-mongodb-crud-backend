@@ -13,10 +13,19 @@ export const getTasks = async (req, res) => {
 // POST /tasks -> crear
 export const createTask = async (req, res) => {
   try {
-    const task = new Task(req.body);
+    const { title, description } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ message: "Title is required" });
+    }
+
+    const task = new Task({ title: title.trim(), description });
     await task.save();
     return res.status(201).json(task);
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({ message: "Task with this title already exists" });
+    }
     return res.status(500).json({ message: error.message });
   }
 };
@@ -25,7 +34,7 @@ export const createTask = async (req, res) => {
 export const getTask = async (req, res) => {
   try {
     const task = await Task.findById(req.params.id);
-    return res.status(202).json(task);
+    return res.status(200).json(task);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -34,9 +43,27 @@ export const getTask = async (req, res) => {
 // PUT /tasks/:id -> actualizar
 export const updateTask = async (req, res) => {
   try {
-    const task = await Task.findByIdAndUpdate(req.params.id, req.body, {
+    const { title, description, done } = req.body;
+    const updateFields = {};
+
+    if (title !== undefined) {
+      if (!title.trim()) {
+        return res.status(400).json({ message: "Title cannot be empty" });
+      }
+      updateFields.title = title.trim();
+    }
+    if (description !== undefined) updateFields.description = description;
+    if (done !== undefined) updateFields.done = done;
+
+    const task = await Task.findByIdAndUpdate(req.params.id, updateFields, {
       new: true,
+      runValidators: true,
     });
+
+    if (!task) {
+      return res.status(404).json({ message: "Task not found" });
+    }
+
     return res.status(200).json(task);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -45,10 +72,17 @@ export const updateTask = async (req, res) => {
 
 // PATCH /tasks/:id/toggle Cambiar estado
 export const toggleTaskDone = async (req, res) => {
-  const task = await Task.findById(req.params.id);
-  task.done = !task.done;
-  await task.save();
-  res.json(task);
+  try {
+    const task = await Task.findById(req.params.id);
+    if (!task) {
+      return res.status(404).json({ message: "Task not found" });
+    }
+    task.done = !task.done;
+    await task.save();
+    res.json(task);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 
