@@ -8,6 +8,7 @@ let mongoServer;
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
   const uri = mongoServer.getUri();
+  globalThis.__TEST_URI__ = uri;
   await mongoose.connect(uri);
   await User.init();
 });
