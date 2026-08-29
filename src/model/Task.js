@@ -14,7 +14,8 @@ const TaskSchema = Schema(
     owner: {
       type: Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      // No required: las tareas legacy (pre-auth) no tienen dueño y las
+      // gestiona el admin. Las nuevas siempre se crean con owner desde el controlador.
     },
   },
   {

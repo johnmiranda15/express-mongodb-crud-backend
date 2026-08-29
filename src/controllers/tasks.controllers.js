@@ -1,6 +1,14 @@
 import { isValidObjectId } from "mongoose";
 import Task from "../model/Task.js";
 
+// Un task sin owner (tareas viejas pre-auth) solo puede gestionarla el admin.
+// Devuelve true si el usuario puede operar sobre la tarea.
+const canManage = (task, user) => {
+  if (user.role === "admin") return true;
+  if (!task.owner) return false; // sin dueño -> solo admin
+  return task.owner.equals(user._id);
+};
+
 // GET /tasks -> obtener todas (user ve solo las suyas; admin todas)
 export const getTasks = async (req, res) => {
   try {
@@ -42,7 +50,7 @@ export const getTask = async (req, res) => {
     if (!task) {
       return res.status(404).json({ message: "Task not found" });
     }
-    if (req.user.role !== "admin" && !task.owner.equals(req.user._id)) {
+    if (!canManage(task, req.user)) {
       return res.status(403).json({ message: "Forbidden: not your task" });
     }
     return res.status(200).json(task);
@@ -74,7 +82,7 @@ export const updateTask = async (req, res) => {
     if (!existing) {
       return res.status(404).json({ message: "Task not found" });
     }
-    if (req.user.role !== "admin" && !existing.owner.equals(req.user._id)) {
+    if (!canManage(existing, req.user)) {
       return res.status(403).json({ message: "Forbidden: not your task" });
     }
 
@@ -99,7 +107,7 @@ export const toggleTaskDone = async (req, res) => {
     if (!task) {
       return res.status(404).json({ message: "Task not found" });
     }
-    if (req.user.role !== "admin" && !task.owner.equals(req.user._id)) {
+    if (!canManage(task, req.user)) {
       return res.status(403).json({ message: "Forbidden: not your task" });
     }
     task.done = !task.done;
@@ -124,7 +132,7 @@ export const deleteTask = async (req, res) => {
     if (!existing) {
       return res.status(404).json({ message: "Task not found" });
     }
-    if (req.user.role !== "admin" && !existing.owner.equals(req.user._id)) {
+    if (!canManage(existing, req.user)) {
       return res.status(403).json({ message: "Forbidden: not your task" });
     }
 

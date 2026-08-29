@@ -221,6 +221,16 @@ describe("PATCH /api/tasks/:id/toggle", () => {
       .set("Authorization", `Bearer ${userToken}`);
     expect(res.status).toBe(403);
   });
+
+  it("admin should toggle a legacy task without owner (no 500)", async () => {
+    // Tareas viejas creadas antes del campo owner no tienen dueño
+    const inserted = await Task.collection.insertOne({ title: "Legacy", done: false });
+    const res = await request(app)
+      .patch(`/api/tasks/${inserted.insertedId}/toggle`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.done).toBe(true);
+  });
 });
 
 describe("DELETE /api/tasks/:id", () => {
