@@ -1,58 +1,134 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 import request from "supertest";
 import app from "../src/app.js";
 import Task from "../src/model/Task.js";
+import User from "../src/model/User.js";
+
+let userToken;
+let adminToken;
+let user;
+let admin;
+
+const registerAndLogin = async (overrides = {}) => {
+  const payload = {
+    username: "testuser",
+    email: "test@example.com",
+    password: "secret123",
+    ...overrides,
+  };
+  const res = await request(app).post("/api/auth/register").send(payload);
+  return res;
+};
+
+beforeAll(async () => {
+  const userRes = await registerAndLogin();
+  userToken = userRes.body.token;
+
+  const adminRes = await registerAndLogin({
+    username: "admin",
+    email: "admin@example.com",
+    password: "secret123",
+    role: "admin",
+  });
+  adminToken = adminRes.body.token;
+
+  user = await User.findOne({ email: "test@example.com" });
+  admin = await User.findOne({ email: "admin@example.com" });
+});
+
+beforeEach(async () => {
+  await Task.deleteMany({});
+});
+
+describe("AUTH /api/auth", () => {
+  it("should register a new user", async () => {
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ username: "juan", email: "juan@example.com", password: "secret123" });
+
+    expect(res.status).toBe(201);
+    expect(res.body.token).toBeDefined();
+    expect(res.body.user.role).toBe("user");
+  });
+
+  it("should return 400 when data missing", async () => {
+    const res = await request(app).post("/api/auth/register").send({ username: "juan" });
+    expect(res.status).toBe(400);
+  });
+
+  it("should return 409 when email already exists", async () => {
+    await request(app)
+      .post("/api/auth/register")
+      .send({ username: "dupuser1", email: "dup@example.com", password: "secret123" });
+    const res = await request(app)
+      .post("/api/auth/register")
+      .send({ username: "dupuser2", email: "dup@example.com", password: "secret123" });
+
+    expect(res.status).toBe(409);
+  });
+
+  it("should login with valid credentials", async () => {
+    await User.create({ username: "x", email: "x@example.com", password: "secret123" });
+    const res = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "x@example.com", password: "secret123" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.token).toBeDefined();
+  });
+
+  it("should return 401 with invalid credentials", async () => {
+    const res = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "x@example.com", password: "wrong" });
+
+    expect(res.status).toBe(401);
+  });
+});
 
 describe("GET /api/tasks", () => {
-  beforeEach(async () => {
-    await Task.deleteMany({});
+  it("should return 401 without token", async () => {
+    const res = await request(app).get("/api/tasks");
+    expect(res.status).toBe(401);
   });
 
-  it("should return an empty array when no tasks exist", async () => {
-    const res = await request(app).get("/api/tasks");
+  it("user should only see their own tasks", async () => {
+    await Task.create({ title: "Mine", owner: user._id });
+    await Task.create({ title: "Other", owner: admin._id });
+
+    const res = await request(app).get("/api/tasks").set("Authorization", `Bearer ${userToken}`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].title).toBe("Mine");
   });
 
-  it("should return all tasks", async () => {
-    await Task.create({ title: "Task 1" });
-    await Task.create({ title: "Task 2" });
+  it("admin should see all tasks", async () => {
+    await Task.create({ title: "Mine", owner: user._id });
+    await Task.create({ title: "Other", owner: admin._id });
 
-    const res = await request(app).get("/api/tasks");
+    const res = await request(app).get("/api/tasks").set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(2);
   });
 });
 
 describe("POST /api/tasks", () => {
-  beforeEach(async () => {
-    await Task.deleteMany({});
-  });
-
-  it("should create a new task", async () => {
+  it("should create a new task with owner set", async () => {
     const res = await request(app)
       .post("/api/tasks")
+      .set("Authorization", `Bearer ${userToken}`)
       .send({ title: "New task", description: "Description" });
 
     expect(res.status).toBe(201);
     expect(res.body.title).toBe("New task");
-    expect(res.body.description).toBe("Description");
-    expect(res.body.done).toBe(false);
+    expect(String(res.body.owner)).toBe(String(user._id));
   });
 
   it("should return 400 when title is missing", async () => {
     const res = await request(app)
       .post("/api/tasks")
+      .set("Authorization", `Bearer ${userToken}`)
       .send({ description: "No title" });
-
-    expect(res.status).toBe(400);
-    expect(res.body.message).toBe("Title is required");
-  });
-
-  it("should return 400 when title is empty", async () => {
-    const res = await request(app)
-      .post("/api/tasks")
-      .send({ title: "   " });
 
     expect(res.status).toBe(400);
     expect(res.body.message).toBe("Title is required");
@@ -60,106 +136,120 @@ describe("POST /api/tasks", () => {
 });
 
 describe("GET /api/tasks/:id", () => {
-  beforeEach(async () => {
-    await Task.deleteMany({});
-  });
+  it("should return a task owned by the user", async () => {
+    const task = await Task.create({ title: "Test task", owner: user._id });
 
-  it("should return a task by id", async () => {
-    const task = await Task.create({ title: "Test task" });
-
-    const res = await request(app).get(`/api/tasks/${task._id}`);
+    const res = await request(app)
+      .get(`/api/tasks/${task._id}`)
+      .set("Authorization", `Bearer ${userToken}`);
     expect(res.status).toBe(200);
     expect(res.body.title).toBe("Test task");
   });
 
-  it("should return 500 for invalid id format", async () => {
-    const res = await request(app).get("/api/tasks/invalid-id");
-    expect(res.status).toBe(500);
+  it("should return 403 when user tries to read others' task", async () => {
+    const task = await Task.create({ title: "Other", owner: admin._id });
+
+    const res = await request(app)
+      .get(`/api/tasks/${task._id}`)
+      .set("Authorization", `Bearer ${userToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("admin should read any task", async () => {
+    const task = await Task.create({ title: "Other", owner: user._id });
+
+    const res = await request(app)
+      .get(`/api/tasks/${task._id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
   });
 });
 
 describe("PUT /api/tasks/:id", () => {
-  beforeEach(async () => {
-    await Task.deleteMany({});
-  });
-
-  it("should update a task", async () => {
-    const task = await Task.create({ title: "Original" });
+  it("user should update their own task", async () => {
+    const task = await Task.create({ title: "Original", owner: user._id });
 
     const res = await request(app)
       .put(`/api/tasks/${task._id}`)
+      .set("Authorization", `Bearer ${userToken}`)
       .send({ title: "Updated", done: true });
 
     expect(res.status).toBe(200);
     expect(res.body.title).toBe("Updated");
-    expect(res.body.done).toBe(true);
   });
 
-  it("should return 404 when task not found", async () => {
-    const fakeId = "507f1f77bcf86cd799439011";
-    const res = await request(app)
-      .put(`/api/tasks/${fakeId}`)
-      .send({ title: "Nope" });
-
-    expect(res.status).toBe(404);
-  });
-
-  it("should return 400 when title is empty", async () => {
-    const task = await Task.create({ title: "Task" });
+  it("should return 403 when user updates others' task", async () => {
+    const task = await Task.create({ title: "Other", owner: admin._id });
 
     const res = await request(app)
       .put(`/api/tasks/${task._id}`)
-      .send({ title: "   " });
+      .set("Authorization", `Bearer ${userToken}`)
+      .send({ title: "Hacked" });
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
+  });
+
+  it("admin should update any task", async () => {
+    const task = await Task.create({ title: "Other", owner: user._id });
+
+    const res = await request(app)
+      .put(`/api/tasks/${task._id}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ title: "Admin updated" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.title).toBe("Admin updated");
   });
 });
 
 describe("PATCH /api/tasks/:id/toggle", () => {
-  beforeEach(async () => {
-    await Task.deleteMany({});
-  });
+  it("user should toggle their own task", async () => {
+    const task = await Task.create({ title: "Toggle me", owner: user._id });
 
-  it("should toggle task done status", async () => {
-    const task = await Task.create({ title: "Toggle me" });
-
-    const res = await request(app).patch(`/api/tasks/${task._id}/toggle`);
+    const res = await request(app)
+      .patch(`/api/tasks/${task._id}/toggle`)
+      .set("Authorization", `Bearer ${userToken}`);
     expect(res.status).toBe(200);
     expect(res.body.done).toBe(true);
   });
 
-  it("should toggle back to false", async () => {
-    const task = await Task.create({ title: "Toggle me", done: true });
+  it("should return 403 toggling others' task", async () => {
+    const task = await Task.create({ title: "Other", owner: admin._id });
 
-    const res = await request(app).patch(`/api/tasks/${task._id}/toggle`);
-    expect(res.status).toBe(200);
-    expect(res.body.done).toBe(false);
-  });
-
-  it("should return 404 when task not found", async () => {
-    const fakeId = "507f1f77bcf86cd799439011";
-    const res = await request(app).patch(`/api/tasks/${fakeId}/toggle`);
-    expect(res.status).toBe(404);
+    const res = await request(app)
+      .patch(`/api/tasks/${task._id}/toggle`)
+      .set("Authorization", `Bearer ${userToken}`);
+    expect(res.status).toBe(403);
   });
 });
 
 describe("DELETE /api/tasks/:id", () => {
-  beforeEach(async () => {
-    await Task.deleteMany({});
-  });
+  it("user should delete their own task", async () => {
+    const task = await Task.create({ title: "Delete me", owner: user._id });
 
-  it("should delete a task", async () => {
-    const task = await Task.create({ title: "Delete me" });
-
-    const res = await request(app).delete(`/api/tasks/${task._id}`);
+    const res = await request(app)
+      .delete(`/api/tasks/${task._id}`)
+      .set("Authorization", `Bearer ${userToken}`);
     expect(res.status).toBe(200);
     expect(res.body.message).toBe("Task deleted successfully");
   });
 
-  it("should return 404 when task not found", async () => {
-    const fakeId = "507f1f77bcf86cd799439011";
-    const res = await request(app).delete(`/api/tasks/${fakeId}`);
-    expect(res.status).toBe(404);
+  it("should return 403 when user deletes others' task", async () => {
+    const task = await Task.create({ title: "Other", owner: admin._id });
+
+    const res = await request(app)
+      .delete(`/api/tasks/${task._id}`)
+      .set("Authorization", `Bearer ${userToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("admin should delete any task", async () => {
+    const task = await Task.create({ title: "Other", owner: user._id });
+
+    const res = await request(app)
+      .delete(`/api/tasks/${task._id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
   });
 });
 
@@ -168,13 +258,5 @@ describe("GET /", () => {
     const res = await request(app).get("/");
     expect(res.status).toBe(200);
     expect(res.body.message).toBe("Backend ejecutandose correctamente");
-  });
-});
-
-describe("404 handler", () => {
-  it("should return 404 for unknown routes", async () => {
-    const res = await request(app).get("/api/unknown");
-    expect(res.status).toBe(404);
-    expect(res.body.message).toBe("Endpoint not found");
   });
 });

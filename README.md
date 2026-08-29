@@ -31,7 +31,7 @@ Now you can visit: <a target="_blank" href="http://localhost:3000">http://localh
 ### Todo
 
 * [ ] add search input to find tasks
-* [ ] add usert authentication and authorization
+* [x] add usert authentication and authorization
 * [ ] add docker configuration for production
 * [ ] add github actions setup
 * [ ] add connect-mongo to store session in db

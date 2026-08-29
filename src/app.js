@@ -2,6 +2,7 @@ import express from "express";
 import morgan from "morgan";
 import cors from "cors";
 import tasksRoutes from "./routes/tasks.routes.js"; // nombre más claro
+import authRoutes from "./routes/auth.routes.js";
 import { FRONTEND_URL } from "./config.js";
 
 const app = express();
@@ -25,6 +26,7 @@ app.get("/", (req, res) => {
 });
 
 // Rutas principales
+app.use("/api/auth", authRoutes);
 app.use("/api", tasksRoutes);
 
 // Manejo de rutas inexistentes
