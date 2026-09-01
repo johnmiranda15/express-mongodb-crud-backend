@@ -3,6 +3,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import Task from "../src/model/Task.js";
 import User from "../src/model/User.js";
 import { runMigration } from "../src/utils/migrateLegacyTasks.js";
+import { removeUserByEmail } from "../src/utils/removeUser.js";
 
 let uri;
 
@@ -71,5 +72,59 @@ describe("migrateLegacyTasks / runMigration", () => {
     expect(first.modified).toBe(1);
     expect(second.legacyCount).toBe(0);
     expect(second.modified).toBe(0);
+  });
+
+  it("asigna las tareas legacy a un usuario normal con targetEmail", async () => {
+    const normal = await User.create({
+      username: "normal",
+      email: "normal@test.com",
+      password: "x",
+    });
+    await Task.collection.insertOne({ title: "legacy-a-normal", done: false });
+    await Task.collection.insertOne({ title: "legacy-a-normal2", done: true });
+
+    const result = await runMigration({ uri, adminEmail: "irrelevante@x.com", targetEmail: normal.email });
+
+    expect(result.legacyCount).toBe(2);
+    expect(result.modified).toBe(2);
+    expect(result.adminEmail).toBe(normal.email);
+
+    const legacy = await Task.collection.find({}).toArray();
+    for (const t of legacy) {
+      expect(String(t.owner)).toBe(String(normal._id));
+    }
+  });
+
+  it("aborta con error si targetEmail no existe", async () => {
+    await Task.collection.insertOne({ title: "sin usuario" });
+    await expect(
+      runMigration({ uri, adminEmail: "irrelevante@x.com", targetEmail: "no-existe@test.com" })
+    ).rejects.toThrow(/No se encontró usuario/);
+    const after = await Task.collection.findOne({ title: "sin usuario" });
+    expect(after.owner).toBeUndefined();
+  });
+});
+
+describe("removeUserByEmail", () => {
+  it("elimina el usuario y deja intactas sus tareas que se borran junto con él (removeTasks)", async () => {
+    const u = await User.create({
+      username: "temporal",
+      email: "borrar@test.com",
+      password: "x",
+    });
+    await Task.create({ title: "tarea del temporal", owner: u._id });
+
+    const result = await removeUserByEmail({ uri, email: u.email });
+
+    expect(result.deleted).toBe(u.email);
+    expect(result.tasksRemoved).toBe(1);
+    expect(await User.findOne({ email: u.email })).toBeNull();
+    expect(await Task.findOne({ title: "tarea del temporal" })).toBeNull();
+  });
+
+  it("aborta con error si el email no existe", async () => {
+    await expect(
+      removeUserByEmail({ uri, email: "nadie@test.com" })
+    ).rejects.toThrow(/No existe usuario/);
   });
 });
